@@ -1,10 +1,20 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { View, FlatList, StyleSheet, RefreshControl, Image } from 'react-native';
-import { Title, Text, Chip, Searchbar, ActivityIndicator, Modal, Portal, Button, Divider, Menu, List, Card, IconButton } from 'react-native-paper';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { View, FlatList, StyleSheet, RefreshControl, Image, Share, Animated } from 'react-native';
+import { Title, Text, Chip, Searchbar, ActivityIndicator, Modal, Portal, Button, Menu, Card, IconButton, FAB, Snackbar, Avatar, Switch } from 'react-native-paper';
 import { firestore } from '../firebase';
 import { useNavigation } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import * as Location from 'expo-location';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const filterOptions = ['Sedan', 'SUV', 'Hatchback', 'Truck'];
+const sortOptions = [
+  { key: 'price', title: 'Price' },
+  { key: 'year', title: 'Year' },
+  { key: 'distance', title: 'Distance' },
+];
+
+const ITEMS_PER_PAGE = 10;
 
 export default function DashboardScreen() {
   const [cars, setCars] = useState([]);
@@ -16,32 +26,98 @@ export default function DashboardScreen() {
   const [sortBy, setSortBy] = useState('price');
   const [sortOrder, setSortOrder] = useState('asc');
   const [menuVisible, setMenuVisible] = useState(false);
-  const [viewMode, setViewMode] = useState('list'); // 'list' or 'grid'
-  const navigation = useNavigation();
+  const [viewMode, setViewMode] = useState('list');
+  const [userLocation, setUserLocation] = useState(null);
+  const [snackbarVisible, setSnackbarVisible] = useState(false);
+  const [snackbarMessage, setSnackbarMessage] = useState('');
+  const [darkMode, setDarkMode] = useState(false);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
 
-  const fetchCars = useCallback(() => {
+  const navigation = useNavigation();
+  const fadeAnim = useRef(new Animated.Value(1)).current;
+
+  const theme = {
+    backgroundColor: darkMode ? '#121212' : '#f5f5f5',
+    textColor: darkMode ? '#ffffff' : '#333333',
+    cardColor: darkMode ? '#1e1e1e' : '#ffffff',
+  };
+
+  const fetchCars = useCallback(async () => {
+    if (!hasMore) return;
+
     setLoading(true);
-    const unsubscribe = firestore.collection('cars').onSnapshot(snapshot => {
-      const carList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setCars(carList);
+    try {
+      const cachedCars = await AsyncStorage.getItem('cachedCars');
+      if (cachedCars) {
+        setCars(JSON.parse(cachedCars));
+        setLoading(false);
+      }
+
+      const snapshot = await firestore.collection('cars')
+        .orderBy(sortBy, sortOrder)
+        .limit(page * ITEMS_PER_PAGE)
+        .get();
+
+      const fetchedCars = snapshot.docs.map(doc => {
+        const car = { id: doc.id, ...doc.data() };
+        if (userLocation && car.latitude && car.longitude) {
+          car.distance = calculateDistance(userLocation, { latitude: car.latitude, longitude: car.longitude });
+        }
+        return car;
+      });
+
+      setCars(fetchedCars);
+      setHasMore(fetchedCars.length === page * ITEMS_PER_PAGE);
+      await AsyncStorage.setItem('cachedCars', JSON.stringify(fetchedCars));
+    } catch (error) {
+      setSnackbarMessage('Error fetching cars. Please try again.');
+      setSnackbarVisible(true);
+    } finally {
       setLoading(false);
       setRefreshing(false);
-    });
-    return unsubscribe;
-  }, []);
+    }
+  }, [userLocation, sortBy, sortOrder, page]);
 
   useEffect(() => {
-    const unsubscribe = fetchCars();
-    return () => unsubscribe();
-  }, [fetchCars]);
-
-  const onRefresh = useCallback(() => {
-    setRefreshing(true);
     fetchCars();
   }, [fetchCars]);
 
-  const onChangeSearch = (query) => setSearchQuery(query);
+  useEffect(() => {
+    (async () => {
+      let { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        setSnackbarMessage('Permission to access location was denied');
+        setSnackbarVisible(true);
+        return;
+      }
+      let location = await Location.getCurrentPositionAsync({});
+      setUserLocation(location.coords);
+    })();
+  }, []);
 
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    setPage(1);
+    setHasMore(true);
+    fetchCars();
+  }, [fetchCars]);
+
+  const loadMore = () => {
+    if (hasMore && !loading) {
+      setPage(prevPage => prevPage + 1);
+    }
+  };
+  const calculateDistance = (location1, location2) => {
+    const R = 6371;
+    const dLat = (location2.latitude - location1.latitude) * Math.PI / 180;
+    const dLon = (location2.longitude - location1.longitude) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(location1.latitude * Math.PI / 180) * Math.cos(location2.latitude * Math.PI / 180) *
+      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  };
   const filteredAndSortedCars = cars
     .filter(car =>
       (car.make.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -49,102 +125,89 @@ export default function DashboardScreen() {
       (selectedFilters.length === 0 || selectedFilters.includes(car.type))
     )
     .sort((a, b) => {
-      if (sortBy === 'price') {
-        return sortOrder === 'asc' ? a.price - b.price : b.price - a.price;
-      } else if (sortBy === 'year') {
-        return sortOrder === 'asc' ? a.year - b.year : b.year - a.year;
+      if (sortBy === 'distance' && userLocation) {
+        return sortOrder === 'asc' ? a.distance - b.distance : b.distance - a.distance;
       }
-      return 0;
+      return sortOrder === 'asc' ? a[sortBy] - b[sortBy] : b[sortBy] - a[sortBy];
     });
-
-  const renderCarItem = ({ item }) => (
-    viewMode === 'list' ? (
-      <List.Item
-        title={`${item.make} ${item.model}`}
-        description={`${item.year} - $${item.price}/day`}
-        left={() => <Image source={{ uri: item.imageUrl }} style={styles.carImage} />}
-        right={() => (
-          <View style={styles.rightContent}>
-            <Chip icon="car" style={styles.chip}>{item.type}</Chip>
-            <Icon name="chevron-right" size={24} color="#888" />
-          </View>
-        )}
-        onPress={() => navigation.navigate('CarDetails', { car: item })}
-        style={styles.listItem}
-      />
-    ) : (
-      <Card style={styles.gridItem} onPress={() => navigation.navigate('CarDetails', { car: item })}>
-        <Card.Cover source={{ uri: item.imageUrl }} style={styles.carImageGrid} />
+  const toggleFavorite = useCallback((car) => {
+    firestore.collection('cars').doc(car.id).update({
+      isFavorite: !car.isFavorite
+    }).then(() => {
+      setSnackbarMessage(`${car.make} ${car.model} ${car.isFavorite ? 'removed from' : 'added to'} favorites`);
+      setSnackbarVisible(true);
+    });
+  }, []);
+  const shareCar = useCallback(async (car) => {
+    try {
+      await Share.share({
+        message: `Check out this ${car.year} ${car.make} ${car.model} for $${car.price}/day!`,
+        url: car.imageUrl,
+      });
+    } catch (error) {
+      setSnackbarMessage('Error sharing car');
+      setSnackbarVisible(true);
+    }
+  }, []);
+  const renderCarItem = ({ item }) => {
+    const distanceText = item.distance !== undefined && userLocation
+      ? `${item.distance.toFixed(1)} km away`
+      : 'Distance unavailable';
+    return (
+      <Card style={viewMode === 'list' ? styles.listItem : styles.gridItem}>
+        <Card.Cover source={{ uri: item.imageUrl }} style={viewMode === 'list' ? styles.carImage : styles.carImageGrid} />
         <Card.Content>
           <Title>{item.make} {item.model}</Title>
           <Text>${item.price}/day - {item.year}</Text>
-          <Chip icon="car" style={styles.chip}>{item.type}</Chip>
+          {userLocation && <Text>{distanceText}</Text>}
         </Card.Content>
+        <Card.Actions>
+          <IconButton icon={item.isFavorite ? 'heart' : 'heart-outline'} onPress={() => toggleFavorite(item)} />
+          <IconButton icon="share" onPress={() => shareCar(item)} />
+          <Button onPress={() => navigation.navigate('CarDetails', { car: item })}>Details</Button>
+        </Card.Actions>
       </Card>
-    )
-  );
-
-  const toggleFilter = (filter) => {
-    setSelectedFilters(prevFilters =>
-      prevFilters.includes(filter)
-        ? prevFilters.filter(f => f !== filter)
-        : [...prevFilters, filter]
     );
   };
-
-  const handleSort = (newSortBy) => {
-    if (sortBy === newSortBy) {
-      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortBy(newSortBy);
-      setSortOrder('asc');
-    }
-    setMenuVisible(false);
-  };
-
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
       <View style={styles.header}>
-        <Title style={styles.title}>Dashboard</Title>
         <View style={styles.headerIcons}>
-          <IconButton
-            icon={viewMode === 'list' ? 'view-grid' : 'view-list'}
-            size={24}
-            onPress={() => setViewMode(viewMode === 'list' ? 'grid' : 'list')}
-          />
-          <IconButton
-            icon="heart"
-            size={24}
-            onPress={() => navigation.navigate('Favorites')}
-          />
+          {[
+            { icon: viewMode === 'list' ? 'view-grid' : 'view-list', onPress: () => setViewMode(viewMode === 'list' ? 'grid' : 'list') },
+            { icon: 'heart', onPress: () => navigation.navigate('Favorites') },
+            { icon: 'map-marker', onPress: () => navigation.navigate('MapView', { cars: filteredAndSortedCars }) },
+          ].map((item, index) => (
+            <IconButton key={index} icon={item.icon} size={24} onPress={item.onPress} color="#333" />
+          ))}
         </View>
       </View>
       <View style={styles.searchContainer}>
         <Searchbar
-          placeholder="Search by make or model"
-          onChangeText={onChangeSearch}
+          placeholder="Search cars"
+          onChangeText={setSearchQuery}
           value={searchQuery}
           style={styles.searchbar}
+          inputStyle={styles.searchInput}
+          iconColor="#333"
         />
-        <IconButton
-          icon="filter-variant"
-          size={24}
-          onPress={() => setFilterModalVisible(true)}
-        />
+        <IconButton icon="filter-variant" size={24} onPress={() => setFilterModalVisible(true)} color="#333" />
         <Menu
           visible={menuVisible}
           onDismiss={() => setMenuVisible(false)}
-          anchor={<IconButton icon="sort" size={24} onPress={() => setMenuVisible(true)} />}
+          anchor={<IconButton icon="sort" size={24} onPress={() => setMenuVisible(true)} color="#333" />}
         >
-          <Menu.Item onPress={() => handleSort('price')} title="Sort by Price" />
-          <Menu.Item onPress={() => handleSort('year')} title="Sort by Year" />
+          {sortOptions.map(option => (
+            <Menu.Item key={option.key} onPress={() => setSortBy(option.key)} title={option.title} />
+          ))}
+          <Menu.Item onPress={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')} title={`Order: ${sortOrder.toUpperCase()}`} />
         </Menu>
       </View>
       {loading ? (
-        <ActivityIndicator animating={true} size="large" style={styles.loading} />
+        <ActivityIndicator animating={true} size="large" style={styles.loading} color="#333" />
       ) : (
         <FlatList
-          key={viewMode}  // Force re-render by changing key based on viewMode
+          key={viewMode}
           data={filteredAndSortedCars}
           renderItem={renderCarItem}
           keyExtractor={item => item.id}
@@ -155,107 +218,167 @@ export default function DashboardScreen() {
               <Text style={styles.emptyText}>No cars found</Text>
             </View>
           }
-          ItemSeparatorComponent={() => viewMode === 'list' && <Divider />}
           numColumns={viewMode === 'grid' ? 2 : 1}
+          contentContainerStyle={styles.listContainer}
         />
       )}
       <Portal>
         <Modal visible={filterModalVisible} onDismiss={() => setFilterModalVisible(false)} contentContainerStyle={styles.modalContent}>
-          <Title>Filter by Car Type</Title>
+          <Title style={styles.modalTitle}>Filter by Car Type</Title>
           <View style={styles.filterChips}>
-            {['Sedan', 'SUV', 'Hatchback', 'Truck'].map(filter => (
+            {filterOptions.map(filter => (
               <Chip
                 key={filter}
                 selected={selectedFilters.includes(filter)}
-                onPress={() => toggleFilter(filter)}
+                onPress={() => setSelectedFilters(prev => prev.includes(filter) ? prev.filter(f => f !== filter) : [...prev, filter])}
                 style={styles.filterChip}
+                selectedColor="#333"
               >
                 {filter}
               </Chip>
             ))}
           </View>
-          <Button mode="contained" onPress={() => setFilterModalVisible(false)}>Apply Filters</Button>
+          <Button mode="contained" onPress={() => setFilterModalVisible(false)} style={styles.applyButton}>Apply Filters</Button>
         </Modal>
       </Portal>
-    </SafeAreaView>
+      <FAB
+        style={styles.fab}
+        icon="plus"
+        onPress={() => navigation.navigate('AddCar')}
+        color="#fff"
+      />
+      <Snackbar
+        visible={snackbarVisible}
+        onDismiss={() => setSnackbarVisible(false)}
+        duration={3000}
+        style={styles.snackbar}
+      >
+        {snackbarMessage}
+      </Snackbar>
+    </View>
   );
 }
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#f5f5f5'
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 20,
+    padding: 15,
     backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
   },
   title: {
     fontSize: 24,
+    color: '#333',
+    fontWeight: 'bold'
   },
   headerIcons: {
-    flexDirection: 'row',
+    flexDirection: 'row'
   },
   searchContainer: {
     flexDirection: 'row',
     padding: 10,
     backgroundColor: '#fff',
+    borderRadius: 8,
+    margin: 10,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
   },
   searchbar: {
     flex: 1,
+    marginRight: 10,
+    elevation: 0,
+    backgroundColor: 'transparent'
   },
-  iconButton: {
-    justifyContent: 'center',
-    alignItems: 'center',
+  searchInput: {
+    color: '#333',
+  },
+  listContainer: {
+    padding: 10,
   },
   listItem: {
+    marginBottom: 15,
+    borderRadius: 8,
+    elevation: 2,
     backgroundColor: '#fff',
-  },
-  carImage: {
-    width: 80,
-    height: 80,
-    borderRadius: 5,
-  },
-  carImageGrid: {
-    height: 120,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
   },
   gridItem: {
     flex: 1,
     margin: 5,
+    borderRadius: 8,
+    elevation: 2,
+    backgroundColor: '#fff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
   },
-  rightContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  carImage: {
+    height: 150,
+    borderTopLeftRadius: 8,
+    borderTopRightRadius: 8
   },
-  chip: {
-    marginRight: 10,
+  carImageGrid: {
+    height: 120,
+    borderTopLeftRadius: 8,
+    borderTopRightRadius: 8
   },
   loading: {
-    marginTop: 50,
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center'
   },
   modalContent: {
     backgroundColor: 'white',
     padding: 20,
     margin: 20,
-    borderRadius: 5,
+    borderRadius: 8,
+  },
+  modalTitle: {
+    marginBottom: 15,
+    color: '#333',
   },
   filterChips: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    marginVertical: 20,
+    marginVertical: 10
   },
   filterChip: {
     margin: 5,
+    backgroundColor: '#f0f0f0',
+  },
+  applyButton: {
+    marginTop: 15,
+    backgroundColor: '#333',
   },
   emptyList: {
     alignItems: 'center',
-    marginTop: 50,
+    marginTop: 50
   },
   emptyText: {
     marginTop: 10,
-    color: '#888',
+    color: '#888'
+  },
+  fab: {
+    position: 'absolute',
+    margin: 16,
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#333',
+  },
+  snackbar: {
+    backgroundColor: '#333',
   },
 });
