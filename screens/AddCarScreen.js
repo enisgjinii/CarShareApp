@@ -1,14 +1,20 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, StyleSheet, Image, TouchableOpacity, Platform, ScrollView, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { TextInput, Button, Title, Snackbar, useTheme, Text, ProgressBar, IconButton, Chip } from 'react-native-paper';
+import { TextInput, Button, Title, Snackbar, useTheme, Text, ProgressBar, IconButton, Chip, Menu } from 'react-native-paper';
 import { auth, firestore, storage } from '../firebase';
 import * as ImagePicker from 'expo-image-picker';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import Animated, { useSharedValue, useAnimatedStyle, withTiming } from 'react-native-reanimated';
 import * as Location from 'expo-location';
 import { Picker } from '@react-native-picker/picker';
+import Toast from 'react-native-toast-message';
+
 const STEPS = ['Image', 'Details', 'Price', 'Features', 'Location', 'Description'];
+const CAR_TYPES = ['Sedan', 'SUV', 'Hatchback', 'Coupe', 'Convertible', 'Wagon', 'Van', 'Truck'];
+const FUEL_TYPES = ['Gasoline', 'Diesel', 'Electric', 'Hybrid', 'Plug-in Hybrid'];
+const TRANSMISSION_TYPES = ['Automatic', 'Manual', 'CVT', 'Semi-Automatic'];
+
 export default function AddCarScreen({ navigation }) {
   const [carData, setCarData] = useState({
     make: '',
@@ -18,6 +24,11 @@ export default function AddCarScreen({ navigation }) {
     description: '',
     features: [],
     location: null,
+    type: '',
+    fuelType: '',
+    transmission: '',
+    mileage: '',
+    color: '',
   });
   const [image, setImage] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -25,12 +36,18 @@ export default function AddCarScreen({ navigation }) {
   const [currentStep, setCurrentStep] = useState(0);
   const theme = useTheme();
   const progress = useSharedValue(0);
+  const [showTypeMenu, setShowTypeMenu] = useState(false);
+  const [showFuelTypeMenu, setShowFuelTypeMenu] = useState(false);
+  const [showTransmissionMenu, setShowTransmissionMenu] = useState(false);
+
   const animatedStyles = useAnimatedStyle(() => ({
     width: `${progress.value * 100}%`,
   }));
+
   useEffect(() => {
     progress.value = withTiming((currentStep + 1) / STEPS.length, { duration: 500 });
   }, [currentStep]);
+
   useEffect(() => {
     (async () => {
       if (Platform.OS !== 'web') {
@@ -41,6 +58,7 @@ export default function AddCarScreen({ navigation }) {
       }
     })();
   }, []);
+
   const pickImage = async () => {
     try {
       let result = await ImagePicker.launchImageLibraryAsync({
@@ -55,61 +73,125 @@ export default function AddCarScreen({ navigation }) {
       }
     } catch (error) {
       setError('Failed to pick image');
+      Toast.show({
+        type: 'error',
+        text1: 'Image Selection Failed',
+        text2: 'Please try again',
+      });
     }
   };
+
   const handleInputChange = (name, value) => {
     setCarData(prevState => ({ ...prevState, [name]: value }));
   };
+
   const nextStep = () => {
     if (currentStep < STEPS.length - 1) {
       setCurrentStep(prevStep => prevStep + 1);
     }
   };
+
   const prevStep = () => {
     if (currentStep > 0) {
       setCurrentStep(prevStep => prevStep - 1);
     }
   };
+
+  const validateCarData = () => {
+    const requiredFields = ['make', 'model', 'year', 'price', 'type', 'fuelType', 'transmission', 'mileage'];
+    const missingFields = requiredFields.filter(field => !carData[field]);
+
+    if (missingFields.length > 0) {
+      setError(`Please fill in all required fields: ${missingFields.join(', ')}`);
+      return false;
+    }
+
+    if (!image) {
+      setError('Please add an image of your car');
+      return false;
+    }
+
+    if (isNaN(parseFloat(carData.price)) || parseFloat(carData.price) <= 0) {
+      setError('Please enter a valid price');
+      return false;
+    }
+
+    if (isNaN(parseInt(carData.year)) || parseInt(carData.year) < 1900 || parseInt(carData.year) > new Date().getFullYear()) {
+      setError('Please enter a valid year');
+      return false;
+    }
+
+    if (isNaN(parseInt(carData.mileage)) || parseInt(carData.mileage) < 0) {
+      setError('Please enter a valid mileage');
+      return false;
+    }
+
+    return true;
+  };
+
   const handleAddCar = async () => {
-    if (!carData.make || !carData.model || !carData.year || !carData.price || !image) {
-      setError('Please fill in all required fields and add an image');
+    if (!validateCarData()) {
+      Toast.show({
+        type: 'error',
+        text1: 'Validation Error',
+        text2: error,
+      });
       return;
     }
+
     setLoading(true);
     try {
       const newCarData = {
         ...carData,
         year: parseInt(carData.year),
         price: parseFloat(carData.price),
+        mileage: parseInt(carData.mileage),
         ownerId: auth.currentUser.uid,
         createdAt: new Date().toISOString(),
       };
+
       const response = await fetch(image);
       const blob = await response.blob();
       const imageName = `car_${Date.now()}.jpg`;
       const storageRef = storage.ref(`carImages/${imageName}`);
       await storageRef.put(blob);
       newCarData.imageUrl = await storageRef.getDownloadURL();
+
       await firestore.collection('cars').add(newCarData);
+      Toast.show({
+        type: 'success',
+        text1: 'Car Added Successfully',
+        text2: 'Your car has been listed',
+      });
       navigation.navigate('Dashboard');
     } catch (err) {
       setError(err.message);
+      Toast.show({
+        type: 'error',
+        text1: 'Error',
+        text2: 'Failed to add car. Please try again.',
+      });
     } finally {
       setLoading(false);
     }
   };
+
   const handleAddFeature = (feature) => {
-    setCarData(prevState => ({
-      ...prevState,
-      features: [...prevState.features, feature]
-    }));
+    if (feature && !carData.features.includes(feature)) {
+      setCarData(prevState => ({
+        ...prevState,
+        features: [...prevState.features, feature]
+      }));
+    }
   };
+
   const handleRemoveFeature = (feature) => {
     setCarData(prevState => ({
       ...prevState,
       features: prevState.features.filter(f => f !== feature)
     }));
   };
+
   const getLocation = useCallback(async () => {
     try {
       let { status } = await Location.requestForegroundPermissionsAsync();
@@ -125,10 +207,21 @@ export default function AddCarScreen({ navigation }) {
           longitude: location.coords.longitude,
         }
       }));
+      Toast.show({
+        type: 'success',
+        text1: 'Location Set',
+        text2: 'Your current location has been added',
+      });
     } catch (error) {
       setError('Error getting location');
+      Toast.show({
+        type: 'error',
+        text1: 'Location Error',
+        text2: 'Failed to get your location',
+      });
     }
   }, []);
+
   const renderStepContent = () => {
     switch (currentStep) {
       case 0:
@@ -170,19 +263,97 @@ export default function AddCarScreen({ navigation }) {
                 <Picker.Item key={year} label={year.toString()} value={year.toString()} />
               ))}
             </Picker>
+            <Menu
+              visible={showTypeMenu}
+              onDismiss={() => setShowTypeMenu(false)}
+              anchor={
+                <Button onPress={() => setShowTypeMenu(true)}>
+                  {carData.type || "Select Car Type"}
+                </Button>
+              }
+            >
+              {CAR_TYPES.map((type) => (
+                <Menu.Item
+                  key={type}
+                  onPress={() => {
+                    handleInputChange('type', type);
+                    setShowTypeMenu(false);
+                  }}
+                  title={type}
+                />
+              ))}
+            </Menu>
           </>
         );
       case 2:
         return (
-          <TextInput
-            label="Price"
-            value={carData.price}
-            onChangeText={(value) => handleInputChange('price', value)}
-            style={styles.input}
-            mode="outlined"
-            keyboardType="numeric"
-            left={<TextInput.Affix text="$" />}
-          />
+          <>
+            <TextInput
+              label="Price"
+              value={carData.price}
+              onChangeText={(value) => handleInputChange('price', value)}
+              style={styles.input}
+              mode="outlined"
+              keyboardType="numeric"
+              left={<TextInput.Affix text="$" />}
+            />
+            <TextInput
+              label="Mileage"
+              value={carData.mileage}
+              onChangeText={(value) => handleInputChange('mileage', value)}
+              style={styles.input}
+              mode="outlined"
+              keyboardType="numeric"
+              right={<TextInput.Affix text="miles" />}
+            />
+            <Menu
+              visible={showFuelTypeMenu}
+              onDismiss={() => setShowFuelTypeMenu(false)}
+              anchor={
+                <Button onPress={() => setShowFuelTypeMenu(true)}>
+                  {carData.fuelType || "Select Fuel Type"}
+                </Button>
+              }
+            >
+              {FUEL_TYPES.map((type) => (
+                <Menu.Item
+                  key={type}
+                  onPress={() => {
+                    handleInputChange('fuelType', type);
+                    setShowFuelTypeMenu(false);
+                  }}
+                  title={type}
+                />
+              ))}
+            </Menu>
+            <Menu
+              visible={showTransmissionMenu}
+              onDismiss={() => setShowTransmissionMenu(false)}
+              anchor={
+                <Button onPress={() => setShowTransmissionMenu(true)}>
+                  {carData.transmission || "Select Transmission"}
+                </Button>
+              }
+            >
+              {TRANSMISSION_TYPES.map((type) => (
+                <Menu.Item
+                  key={type}
+                  onPress={() => {
+                    handleInputChange('transmission', type);
+                    setShowTransmissionMenu(false);
+                  }}
+                  title={type}
+                />
+              ))}
+            </Menu>
+            <TextInput
+              label="Color"
+              value={carData.color}
+              onChangeText={(value) => handleInputChange('color', value)}
+              style={styles.input}
+              mode="outlined"
+            />
+          </>
         );
       case 3:
         return (
@@ -236,6 +407,7 @@ export default function AddCarScreen({ navigation }) {
         return null;
     }
   };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
@@ -283,9 +455,11 @@ export default function AddCarScreen({ navigation }) {
       >
         {error}
       </Snackbar>
+      <Toast ref={(ref) => Toast.setRef(ref)} />
     </SafeAreaView>
   );
 }
+
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
