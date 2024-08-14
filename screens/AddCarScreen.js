@@ -1,16 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, StyleSheet, Image, TouchableOpacity, Platform, ScrollView, Alert } from 'react-native';
+import { View, StyleSheet, Image, TouchableOpacity, Platform, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { TextInput, Button, Title, Snackbar, useTheme, Text, ProgressBar, IconButton, Chip, Menu } from 'react-native-paper';
 import { auth, firestore, storage } from '../firebase';
 import * as ImagePicker from 'expo-image-picker';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import Animated, { useSharedValue, useAnimatedStyle, withTiming } from 'react-native-reanimated';
 import * as Location from 'expo-location';
-import { Picker } from '@react-native-picker/picker';
 import Toast from 'react-native-toast-message';
 
-const STEPS = ['Image', 'Details', 'Price', 'Features', 'Location', 'Description'];
+const STEPS = ['Image', 'Details', 'Specifications', 'Features', 'Location', 'Description'];
 const CAR_TYPES = ['Sedan', 'SUV', 'Hatchback', 'Coupe', 'Convertible', 'Wagon', 'Van', 'Truck'];
 const FUEL_TYPES = ['Gasoline', 'Diesel', 'Electric', 'Hybrid', 'Plug-in Hybrid'];
 const TRANSMISSION_TYPES = ['Automatic', 'Manual', 'CVT', 'Semi-Automatic'];
@@ -35,18 +33,6 @@ export default function AddCarScreen({ navigation }) {
   const [error, setError] = useState('');
   const [currentStep, setCurrentStep] = useState(0);
   const theme = useTheme();
-  const progress = useSharedValue(0);
-  const [showTypeMenu, setShowTypeMenu] = useState(false);
-  const [showFuelTypeMenu, setShowFuelTypeMenu] = useState(false);
-  const [showTransmissionMenu, setShowTransmissionMenu] = useState(false);
-
-  const animatedStyles = useAnimatedStyle(() => ({
-    width: `${progress.value * 100}%`,
-  }));
-
-  useEffect(() => {
-    progress.value = withTiming((currentStep + 1) / STEPS.length, { duration: 500 });
-  }, [currentStep]);
 
   useEffect(() => {
     (async () => {
@@ -73,11 +59,7 @@ export default function AddCarScreen({ navigation }) {
       }
     } catch (error) {
       setError('Failed to pick image');
-      Toast.show({
-        type: 'error',
-        text1: 'Image Selection Failed',
-        text2: 'Please try again',
-      });
+      showToast('error', 'Image Selection Failed', 'Please try again');
     }
   };
 
@@ -131,11 +113,7 @@ export default function AddCarScreen({ navigation }) {
 
   const handleAddCar = async () => {
     if (!validateCarData()) {
-      Toast.show({
-        type: 'error',
-        text1: 'Validation Error',
-        text2: error,
-      });
+      showToast('error', 'Validation Error', error);
       return;
     }
 
@@ -158,19 +136,11 @@ export default function AddCarScreen({ navigation }) {
       newCarData.imageUrl = await storageRef.getDownloadURL();
 
       await firestore.collection('cars').add(newCarData);
-      Toast.show({
-        type: 'success',
-        text1: 'Car Added Successfully',
-        text2: 'Your car has been listed',
-      });
+      showToast('success', 'Car Added Successfully', 'Your car has been listed');
       navigation.navigate('Dashboard');
     } catch (err) {
       setError(err.message);
-      Toast.show({
-        type: 'error',
-        text1: 'Error',
-        text2: 'Failed to add car. Please try again.',
-      });
+      showToast('error', 'Error', 'Failed to add car. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -207,20 +177,16 @@ export default function AddCarScreen({ navigation }) {
           longitude: location.coords.longitude,
         }
       }));
-      Toast.show({
-        type: 'success',
-        text1: 'Location Set',
-        text2: 'Your current location has been added',
-      });
+      showToast('success', 'Location Set', 'Your current location has been added');
     } catch (error) {
       setError('Error getting location');
-      Toast.show({
-        type: 'error',
-        text1: 'Location Error',
-        text2: 'Failed to get your location',
-      });
+      showToast('error', 'Location Error', 'Failed to get your location');
     }
   }, []);
+
+  const showToast = (type, text1, text2) => {
+    Toast.show({ type, text1, text2 });
+  };
 
   const renderStepContent = () => {
     switch (currentStep) {
@@ -254,20 +220,19 @@ export default function AddCarScreen({ navigation }) {
               style={styles.input}
               mode="outlined"
             />
-            <Picker
-              selectedValue={carData.year}
-              onValueChange={(value) => handleInputChange('year', value)}
-              style={styles.picker}
-            >
-              {Array.from({ length: 50 }, (_, i) => new Date().getFullYear() - i).map(year => (
-                <Picker.Item key={year} label={year.toString()} value={year.toString()} />
-              ))}
-            </Picker>
+            <TextInput
+              label="Year"
+              value={carData.year}
+              onChangeText={(value) => handleInputChange('year', value)}
+              style={styles.input}
+              mode="outlined"
+              keyboardType="numeric"
+            />
             <Menu
-              visible={showTypeMenu}
-              onDismiss={() => setShowTypeMenu(false)}
+              visible={carData.showTypeMenu}
+              onDismiss={() => handleInputChange('showTypeMenu', false)}
               anchor={
-                <Button onPress={() => setShowTypeMenu(true)}>
+                <Button onPress={() => handleInputChange('showTypeMenu', true)}>
                   {carData.type || "Select Car Type"}
                 </Button>
               }
@@ -277,7 +242,7 @@ export default function AddCarScreen({ navigation }) {
                   key={type}
                   onPress={() => {
                     handleInputChange('type', type);
-                    setShowTypeMenu(false);
+                    handleInputChange('showTypeMenu', false);
                   }}
                   title={type}
                 />
@@ -307,10 +272,10 @@ export default function AddCarScreen({ navigation }) {
               right={<TextInput.Affix text="miles" />}
             />
             <Menu
-              visible={showFuelTypeMenu}
-              onDismiss={() => setShowFuelTypeMenu(false)}
+              visible={carData.showFuelTypeMenu}
+              onDismiss={() => handleInputChange('showFuelTypeMenu', false)}
               anchor={
-                <Button onPress={() => setShowFuelTypeMenu(true)}>
+                <Button onPress={() => handleInputChange('showFuelTypeMenu', true)}>
                   {carData.fuelType || "Select Fuel Type"}
                 </Button>
               }
@@ -320,17 +285,17 @@ export default function AddCarScreen({ navigation }) {
                   key={type}
                   onPress={() => {
                     handleInputChange('fuelType', type);
-                    setShowFuelTypeMenu(false);
+                    handleInputChange('showFuelTypeMenu', false);
                   }}
                   title={type}
                 />
               ))}
             </Menu>
             <Menu
-              visible={showTransmissionMenu}
-              onDismiss={() => setShowTransmissionMenu(false)}
+              visible={carData.showTransmissionMenu}
+              onDismiss={() => handleInputChange('showTransmissionMenu', false)}
               anchor={
-                <Button onPress={() => setShowTransmissionMenu(true)}>
+                <Button onPress={() => handleInputChange('showTransmissionMenu', true)}>
                   {carData.transmission || "Select Transmission"}
                 </Button>
               }
@@ -340,7 +305,7 @@ export default function AddCarScreen({ navigation }) {
                   key={type}
                   onPress={() => {
                     handleInputChange('transmission', type);
-                    setShowTransmissionMenu(false);
+                    handleInputChange('showTransmissionMenu', false);
                   }}
                   title={type}
                 />
@@ -414,26 +379,30 @@ export default function AddCarScreen({ navigation }) {
         <View style={styles.container}>
           <Title style={styles.title}>Add Your Car</Title>
           <Text style={styles.stepIndicator}>Step {currentStep + 1} of {STEPS.length}: {STEPS[currentStep]}</Text>
-          <Animated.View style={[styles.progressBar, animatedStyles]} />
+          <ProgressBar progress={(currentStep + 1) / STEPS.length} color={theme.colors.primary} style={styles.progressBar} />
           <View style={styles.content}>
             {renderStepContent()}
           </View>
           <View style={styles.buttonContainer}>
             {currentStep > 0 && (
-              <IconButton
-                icon="arrow-left"
-                size={30}
+              <Button
+                mode="outlined"
                 onPress={prevStep}
                 style={styles.navButton}
-              />
+                icon="arrow-left"
+              >
+                Previous
+              </Button>
             )}
             {currentStep < STEPS.length - 1 ? (
-              <IconButton
-                icon="arrow-right"
-                size={30}
+              <Button
+                mode="contained"
                 onPress={nextStep}
                 style={styles.navButton}
-              />
+                icon="arrow-right"
+              >
+                Next
+              </Button>
             ) : (
               <Button
                 mode="contained"
@@ -463,27 +432,31 @@ export default function AddCarScreen({ navigation }) {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#f0f0f0',
+    backgroundColor: '#f5f5f5',
+  },
+  scrollContent: {
+    flexGrow: 1,
   },
   container: {
     flex: 1,
-    padding: 16,
+    padding: 20,
   },
   title: {
     fontSize: 28,
     fontWeight: 'bold',
     textAlign: 'center',
-    marginBottom: 16,
+    marginBottom: 20,
+    color: '#333',
   },
   stepIndicator: {
     textAlign: 'center',
-    marginBottom: 8,
+    marginBottom: 10,
     fontSize: 16,
+    color: '#666',
   },
   progressBar: {
-    height: 4,
-    backgroundColor: 'blue',
-    marginBottom: 24,
+    height: 6,
+    marginBottom: 30,
   },
   content: {
     flex: 1,
@@ -496,6 +469,8 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     justifyContent: 'center',
     alignItems: 'center',
+    marginBottom: 20,
+    width: '100%',
   },
   image: {
     width: '100%',
@@ -504,48 +479,47 @@ const styles = StyleSheet.create({
   },
   imagePickerPlaceholder: {
     alignItems: 'center',
+    width: '100%',
   },
   imagePickerText: {
-    marginTop: 8,
+    marginTop: 10,
     fontSize: 16,
+    color: '#666',
   },
   input: {
-    marginBottom: 16,
+    marginBottom: 15,
   },
   buttonContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: 24,
+    marginTop: 30,
   },
   navButton: {
-    backgroundColor: '#e0e0e0',
+    flex: 1,
+    marginHorizontal: 5,
   },
   submitButton: {
     flex: 1,
-    marginLeft: 16,
-  },
-  scrollContent: {
-    flexGrow: 1,
-  },
-  picker: {
-    marginBottom: 16,
   },
   featuresTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    marginBottom: 8,
+    marginBottom: 10,
+    color: '#333',
   },
   featuresContainer: {
     flexDirection: 'row',
-    marginBottom: 16,
+    marginBottom: 15,
   },
   featureChip: {
     marginRight: 8,
+    marginBottom: 8,
   },
   locationButton: {
-    marginBottom: 16,
+    marginBottom: 15,
   },
   locationText: {
-    marginBottom: 16,
+    marginBottom: 15,
+    color: '#666',
   },
 });

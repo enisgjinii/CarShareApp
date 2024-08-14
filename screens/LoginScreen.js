@@ -63,7 +63,7 @@ export default function LoginScreen({ navigation }) {
         style={styles.input}
         mode="outlined"
         autoCapitalize="none"
-        left={<TextInput.Icon name="email" color="#000" />} // Set color here
+        left={<TextInput.Icon icon="email" color="#000" />} // Set color here
       />
       <TextInput
         label="Password"
@@ -72,10 +72,10 @@ export default function LoginScreen({ navigation }) {
         style={styles.input}
         mode="outlined"
         secureTextEntry={!passwordVisible}
-        left={<TextInput.Icon name="lock" color={'#FF0000'} />}
+        left={<TextInput.Icon icon="lock"  color="#000" />}
         right={
           <TextInput.Icon
-            name={passwordVisible ? "eye-off" : "eye"}
+          icon={passwordVisible ? "eye-off" : "eye"}
             onPress={() => setPasswordVisible(!passwordVisible)}
           />
         }
