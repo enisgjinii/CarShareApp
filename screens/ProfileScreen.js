@@ -1,18 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { View, StyleSheet, TouchableOpacity, Alert, ScrollView } from 'react-native';
-import { Button, Title, Paragraph, Avatar, TextInput, Modal, Portal, Card, Divider, List, Switch } from 'react-native-paper';
+import { Button, Title, Paragraph, Avatar, TextInput, Modal, Portal, Card, Divider, List, Switch, useTheme } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { auth, firestore, storage } from '../firebase';
 import * as ImagePicker from 'expo-image-picker';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-
 export default function ProfileScreen({ navigation }) {
+  const theme = useTheme();
   const [user, setUser] = useState(null);
   const [editing, setEditing] = useState(false);
   const [editedUser, setEditedUser] = useState({});
   const [modalVisible, setModalVisible] = useState(false);
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
-
   useEffect(() => {
     const fetchUserData = async () => {
       const userDoc = await firestore.collection('users').doc(auth.currentUser.uid).get();
@@ -24,7 +23,6 @@ export default function ProfileScreen({ navigation }) {
     };
     fetchUserData();
   }, []);
-
   const handleLogout = async () => {
     try {
       await auth.signOut();
@@ -33,9 +31,7 @@ export default function ProfileScreen({ navigation }) {
       Alert.alert('Error', 'Failed to log out. Please try again.');
     }
   };
-
   const handleEdit = () => setEditing(true);
-
   const handleSave = async () => {
     try {
       await firestore.collection('users').doc(auth.currentUser.uid).update(editedUser);
@@ -46,30 +42,25 @@ export default function ProfileScreen({ navigation }) {
       Alert.alert('Error', 'Failed to update profile. Please try again.');
     }
   };
-
   const handleCancel = () => {
     setEditedUser(user);
     setEditing(false);
   };
-
   const handleChange = (field, value) => {
     setEditedUser(prev => ({ ...prev, [field]: value }));
   };
-
   const handleImagePick = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
       Alert.alert('Permission Denied', 'Sorry, we need camera roll permissions to make this work!');
       return;
     }
-
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
       aspect: [1, 1],
       quality: 1,
     });
-
     if (!result.canceled) {
       try {
         const response = await fetch(result.assets[0].uri);
@@ -86,7 +77,6 @@ export default function ProfileScreen({ navigation }) {
       }
     }
   };
-
   const toggleNotifications = async () => {
     try {
       const newValue = !notificationsEnabled;
@@ -96,15 +86,14 @@ export default function ProfileScreen({ navigation }) {
       Alert.alert('Error', 'Failed to update notification settings. Please try again.');
     }
   };
-
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <ScrollView>
-        <Card style={styles.profileCard}>
+        <Card style={[styles.profileCard, { backgroundColor: theme.colors.surface }]}>
           <TouchableOpacity onPress={handleImagePick}>
-            <Avatar.Image 
-              size={100} 
-              source={user?.profilePicture ? { uri: user.profilePicture } : require('../assets/icon.png')} 
+            <Avatar.Image
+              size={120}
+              source={user?.profilePicture ? { uri: user.profilePicture } : require('../assets/icon.png')}
               style={styles.avatar}
             />
           </TouchableOpacity>
@@ -113,60 +102,82 @@ export default function ProfileScreen({ navigation }) {
               label="Name"
               value={editedUser.name}
               onChangeText={(text) => handleChange('name', text)}
-              style={styles.input}
+              style={[styles.input, { backgroundColor: theme.colors.background }]}
+              theme={{ colors: { text: theme.colors.text, placeholder: theme.colors.placeholder } }}
             />
           ) : (
-            <Title style={styles.name}>{user?.name}</Title>
+            <Title style={[styles.name, { color: theme.colors.text }]}>{user?.name}</Title>
           )}
-          <Paragraph style={styles.email}>{auth.currentUser?.email}</Paragraph>
-          
+          <Paragraph style={[styles.email, { color: theme.colors.placeholder }]}>{auth.currentUser?.email}</Paragraph>
           {editing ? (
             <View style={styles.editButtons}>
-              <Button mode="contained" onPress={handleSave} style={styles.button}>Save</Button>
-              <Button mode="outlined" onPress={handleCancel} style={styles.button}>Cancel</Button>
+              <Button mode="contained" onPress={handleSave} style={styles.button} color={theme.colors.primary}>Save</Button>
+              <Button mode="outlined" onPress={handleCancel} style={styles.button} color={theme.colors.primary}>Cancel</Button>
             </View>
           ) : (
-            <Button mode="contained" onPress={handleEdit} style={styles.button}>Edit Profile</Button>
+            <Button mode="contained" onPress={handleEdit} style={styles.button} color={theme.colors.primary}>Edit Profile</Button>
           )}
         </Card>
-
-        <Card style={styles.settingsCard}>
-          <Card.Title title="Settings" left={(props) => <MaterialCommunityIcons name="cog" size={24} color="#666" />} />
+        <Card style={[styles.settingsCard, { backgroundColor: theme.colors.surface }]}>
+          <Card.Title
+            title="Settings"
+            titleStyle={{ color: theme.colors.text }}
+            left={(props) => <MaterialCommunityIcons name="cog" size={24} color={theme.colors.text} />}
+          />
           <Card.Content>
             <List.Item
               title="Notifications"
+              titleStyle={{ color: theme.colors.text }}
               description="Enable push notifications"
-              right={() => <Switch value={notificationsEnabled} onValueChange={toggleNotifications} />}
+              descriptionStyle={{ color: theme.colors.placeholder }}
+              right={() => <Switch value={notificationsEnabled} onValueChange={toggleNotifications} color={theme.colors.primary} />}
             />
-            <Divider />
+            <Divider style={{ backgroundColor: theme.colors.placeholder }} />
             <List.Item
               title="Change Password"
+              titleStyle={{ color: theme.colors.text }}
               description="Update your account password"
-              right={(props) => <List.Icon {...props} icon="chevron-right" />}
+              descriptionStyle={{ color: theme.colors.placeholder }}
+              right={(props) => <List.Icon {...props} icon="chevron-right" color={theme.colors.text} />}
               onPress={() => setModalVisible(true)}
             />
-            <Divider />
+            <Divider style={{ backgroundColor: theme.colors.placeholder }} />
             <List.Item
               title="Privacy Policy"
+              titleStyle={{ color: theme.colors.text }}
               description="Read our privacy policy"
-              right={(props) => <List.Icon {...props} icon="chevron-right" />}
-              onPress={() => {/* Navigate to Privacy Policy */}}
+              descriptionStyle={{ color: theme.colors.placeholder }}
+              right={(props) => <List.Icon {...props} icon="chevron-right" color={theme.colors.text} />}
+              onPress={() => {/* Navigate to Privacy Policy */ }}
             />
           </Card.Content>
         </Card>
-
-        <Button mode="contained" onPress={handleLogout} style={styles.logoutButton}>
+        <Button mode="contained" onPress={handleLogout} style={styles.logoutButton} color={theme.colors.error}>
           Logout
         </Button>
       </ScrollView>
-
       <Portal>
-        <Modal visible={modalVisible} onDismiss={() => setModalVisible(false)} contentContainerStyle={styles.modalContent}>
-          <Title style={styles.modalTitle}>Change Password</Title>
-          <TextInput label="Current Password" secureTextEntry style={styles.input} />
-          <TextInput label="New Password" secureTextEntry style={styles.input} />
-          <TextInput label="Confirm New Password" secureTextEntry style={styles.input} />
-          <Button mode="contained" onPress={() => setModalVisible(false)} style={styles.button}>
+        <Modal visible={modalVisible} onDismiss={() => setModalVisible(false)} contentContainerStyle={[styles.modalContent, { backgroundColor: theme.colors.surface }]}>
+          <Title style={[styles.modalTitle, { color: theme.colors.text }]}>Change Password</Title>
+          <TextInput
+            label="Current Password"
+            secureTextEntry
+            style={[styles.input, { backgroundColor: theme.colors.background }]}
+            theme={{ colors: { text: theme.colors.text, placeholder: theme.colors.placeholder } }}
+          />
+          <TextInput
+            label="New Password"
+            secureTextEntry
+            style={[styles.input, { backgroundColor: theme.colors.background }]}
+            theme={{ colors: { text: theme.colors.text, placeholder: theme.colors.placeholder } }}
+          />
+          <TextInput
+            label="Confirm New Password"
+            secureTextEntry
+            style={[styles.input, { backgroundColor: theme.colors.background }]}
+            theme={{ colors: { text: theme.colors.text, placeholder: theme.colors.placeholder } }}
+          />
+          <Button mode="contained" onPress={() => setModalVisible(false)} style={styles.button} color={theme.colors.primary}>
             Change Password
           </Button>
         </Modal>
@@ -174,37 +185,36 @@ export default function ProfileScreen({ navigation }) {
     </SafeAreaView>
   );
 }
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
   },
   profileCard: {
     alignItems: 'center',
     padding: 20,
-    margin: 10,
-    marginBottom: 5,
+    margin: 16,
+    borderRadius: 12,
+    elevation: 4,
   },
   settingsCard: {
-    margin: 10,
-    marginTop: 5,
+    margin: 16,
+    borderRadius: 12,
+    elevation: 4,
   },
   avatar: {
-    marginBottom: 15,
+    marginBottom: 20,
   },
   name: {
-    fontSize: 24,
-    marginBottom: 5,
+    fontSize: 28,
+    fontWeight: 'bold',
+    marginBottom: 8,
   },
   email: {
     fontSize: 16,
-    color: '#666',
-    marginBottom: 15,
+    marginBottom: 20,
   },
   input: {
-    marginBottom: 15,
-    backgroundColor: '#f5f5f5',
+    marginBottom: 16,
     width: '100%',
   },
   editButtons: {
@@ -213,21 +223,22 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   button: {
-    marginVertical: 5,
+    marginVertical: 8,
+    paddingHorizontal: 16,
   },
   logoutButton: {
-    margin: 10,
-    marginTop: 5,
-    backgroundColor: '#ff6b6b',
+    margin: 16,
+    marginTop: 8,
   },
   modalContent: {
-    backgroundColor: 'white',
-    padding: 20,
-    margin: 20,
-    borderRadius: 8,
+    padding: 24,
+    margin: 16,
+    borderRadius: 12,
   },
   modalTitle: {
-    marginBottom: 15,
+    marginBottom: 20,
     textAlign: 'center',
+    fontSize: 24,
+    fontWeight: 'bold',
   },
 });
